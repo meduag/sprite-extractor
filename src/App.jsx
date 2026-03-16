@@ -2,37 +2,69 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Download, FileJson, Image as ImageIcon, Loader2, CheckCircle2, XCircle, Trash2, Zap, FileArchive, ArrowRight, Eye, RefreshCcw, Info, Youtube, Github, ShieldCheck, HelpCircle } from 'lucide-react';
 
 /**
- * Sprite Pro Utility - Versão 2.7
- * - Alterado nome do arquivo de créditos para "Meduag Maker Lab".
- * - Melhoria na consistência da marca no arquivo injetado.
+ * Sprite Pro Utility - Versão 2.8
+ * - Motor de parsing de Plist (XML) mais robusto.
+ * - Alteração do texto do cabeçalho solicitado pelo utilizador.
+ * - Suporte a tags <real> e <array> no processamento de metadados.
  */
 
+// --- Utilitários de Parsing de Plist (XML) ---
 const parsePlist = (text) => {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(text, "text/xml");
+  
   const parseNode = (node) => {
-    if (node.tagName === 'dict') {
+    if (!node) return null;
+
+    const tagName = node.tagName?.toLowerCase();
+
+    if (tagName === 'dict') {
       const obj = {};
+      let currentKey = null;
+      // Itera apenas sobre os elementos filhos, ignorando nós de texto/espaços
       for (let i = 0; i < node.childNodes.length; i++) {
-        if (node.tagName === 'key') {
-          const key = node.childNodes[i].textContent;
-          let nextNode = node.childNodes[i].nextSibling;
-          while (nextNode && nextNode.nodeType !== 1) nextNode = nextNode.nextSibling;
-          obj[key] = parseNode(nextNode);
+        const child = node.childNodes[i];
+        if (child.nodeType !== 1) continue; // Ignora nós que não são elementos (texto, comentários)
+
+        const childTag = child.tagName.toLowerCase();
+        if (childTag === 'key') {
+          currentKey = child.textContent.trim();
+        } else if (currentKey !== null) {
+          obj[currentKey] = parseNode(child);
+          currentKey = null;
         }
       }
       return obj;
-    } else if (node.tagName === 'string') return node.textContent;
-    else if (node.tagName === 'true') return true;
-    else if (node.tagName === 'false') return false;
-    else if (node.tagName === 'integer') return parseInt(node.textContent, 10);
+    } else if (tagName === 'string') {
+      return node.textContent;
+    } else if (tagName === 'true') {
+      return true;
+    } else if (tagName === 'false') {
+      return false;
+    } else if (tagName === 'integer' || tagName === 'real') {
+      return parseFloat(node.textContent);
+    } else if (tagName === 'array') {
+      const arr = [];
+      for (let i = 0; i < node.childNodes.length; i++) {
+        const child = node.childNodes[i];
+        if (child.nodeType === 1) {
+          arr.push(parseNode(child));
+        }
+      }
+      return arr;
+    }
     return null;
   };
+
   const rootDict = xmlDoc.getElementsByTagName('dict')[0];
   return rootDict ? parseNode(rootDict) : null;
 };
 
-const extractNumbers = (str) => (str ? (str.match(/\d+/g) || []).map(Number) : [0, 0, 0, 0]);
+const extractNumbers = (str) => {
+  if (typeof str !== 'string') return [0, 0, 0, 0];
+  const matches = str.match(/-?\d+(\.\d+)?/g);
+  return matches ? matches.map(Number) : [0, 0, 0, 0];
+};
 
 export default function App() {
   const [plistFile, setPlistFile] = useState(null);
@@ -171,10 +203,16 @@ export default function App() {
     try {
       const JSZip = window.JSZip;
       const zip = new JSZip();
-      const data = parsePlist(await plistFile.text());
-      if (!data?.frames) throw new Error("Plist inválida.");
+      const plistContent = await plistFile.text();
+      const data = parsePlist(plistContent);
+      
+      if (!data || !data.frames) {
+        throw new Error("O ficheiro .plist não pôde ser processado ou não contém a chave 'frames'.");
+      }
+
       const frames = data.frames;
       const frameNames = Object.keys(frames);
+      const total = frameNames.length;
 
       const img = new Image();
       const imgUrl = URL.createObjectURL(imageFile);
@@ -183,24 +221,28 @@ export default function App() {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
 
-      for (let i = 0; i < frameNames.length; i++) {
+      for (let i = 0; i < total; i++) {
         const name = frameNames[i];
         const f = frames[name];
         const rect = extractNumbers(f.frame || f.textureRect);
         const [x, y, w, h] = rect;
         const rotated = f.rotated || false;
+        
         canvas.width = w; canvas.height = h;
         ctx.clearRect(0, 0, w, h);
+        
         if (rotated) {
           ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(-Math.PI / 2);
           ctx.drawImage(img, x, y, h, w, -h / 2, -w / 2, h, w); ctx.restore();
-        } else { ctx.drawImage(img, x, y, w, h, 0, 0, w, h); }
+        } else { 
+          ctx.drawImage(img, x, y, w, h, 0, 0, w, h); 
+        }
+        
         const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
         zip.file(name.endsWith('.png') ? name : `${name}.png`, blob);
-        setProgress(Math.round(((i + 1) / frameNames.length) * 100));
+        setProgress(Math.round(((i + 1) / total) * 100));
       }
 
-      // ARQUIVO DE CRÉDITOS NO ZIP - ATUALIZADO PARA MEDUAG MAKER LAB
       const creditsHtml = `
       <!DOCTYPE html>
       <html lang="pt-br">
@@ -236,7 +278,10 @@ export default function App() {
       link.download = `extraido_${plistFile.name.replace('.plist', '')}.zip`;
       link.click();
       setStatus('success');
-    } catch (err) { setErrorMsg(err.message || "Erro na extração."); setStatus('error'); }
+    } catch (err) { 
+      setErrorMsg(err.message || "Erro na extração de sprites."); 
+      setStatus('error'); 
+    }
   };
 
   const useConvertedInExtractor = () => {
@@ -254,9 +299,9 @@ export default function App() {
         <header className="text-center mb-16 relative">
           <div className="absolute inset-0 bg-indigo-500/10 blur-[100px] rounded-full -z-10" />
           <Zap className="w-12 h-12 text-indigo-400 mx-auto mb-6" />
-          <h1 className="text-5xl font-black text-white tracking-tight mb-3 italic">Sprite Pro Utility <span className="text-indigo-500 text-2xl not-italic">v2.7</span></h1>
+          <h1 className="text-5xl font-black text-white tracking-tight mb-3 italic">Sprite Pro Utility <span className="text-indigo-500 text-2xl not-italic">v2.8</span></h1>
           <p className="text-zinc-500 text-lg max-w-2xl mx-auto leading-relaxed italic underline decoration-indigo-500/30">
-            Ferramenta avançada por <span className="text-white font-bold">Meduag Maker Lab</span>.
+            Ferramenta de teste feita por <span className="text-white font-bold">Meduag Maker Lab</span>.
           </p>
         </header>
 
