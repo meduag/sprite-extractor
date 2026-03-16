@@ -2,11 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Download, FileJson, Image as ImageIcon, Loader2, CheckCircle2, XCircle, Trash2, Zap, FileArchive, ArrowRight, Eye, RefreshCcw, Info, Youtube, Github, ShieldCheck, HelpCircle, ExternalLink } from 'lucide-react';
 
 /**
- * Sprite Pro Utility - Versão 3.0
- * - Corrigida visibilidade da mensagem de sucesso "Meduag Maker Lab".
- * - Diferenciação de mensagens entre Recorte e Conversão.
- * - Adicionado feedback para carregamento de bibliotecas.
- * - Mantém a injeção do HTML de créditos no ZIP.
+ * Sprite Pro Utility - Versão 3.1
+ * - Adicionado scroll automático para o painel de status/sucesso.
+ * - Melhorada a visibilidade da mensagem de sucesso "Meduag Maker Lab".
+ * - Mantém todas as funcionalidades de conversão PVR/CCZ e extração de Plist.
  */
 
 // --- Utilitários de Parsing de Plist (XML) ---
@@ -75,6 +74,9 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState('');
   const [libsLoaded, setLibsLoaded] = useState({ jszip: false, pako: false });
 
+  // Referência para o painel de status para permitir o scroll automático
+  const statusPanelRef = useRef(null);
+
   useEffect(() => {
     const loadScript = (src, key) => {
       if (window[key]) { setLibsLoaded(p => ({ ...p, [key.toLowerCase()]: true })); return; }
@@ -86,6 +88,17 @@ export default function App() {
     loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "JSZip");
     loadScript("https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js", "pako");
   }, []);
+
+  // Efeito para rolar a página até o painel de status quando ele aparece
+  useEffect(() => {
+    if (status !== 'idle') {
+      // Pequeno atraso para garantir que o DOM foi atualizado antes do scroll
+      const timer = setTimeout(() => {
+        statusPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [status]);
 
   const reset = () => {
     setPlistFile(null);
@@ -295,7 +308,7 @@ export default function App() {
         <header className="text-center mb-16 relative">
           <div className="absolute inset-0 bg-indigo-500/10 blur-[100px] rounded-full -z-10" />
           <Zap className="w-12 h-12 text-indigo-400 mx-auto mb-6" />
-          <h1 className="text-5xl font-black text-white tracking-tight mb-3 italic">Sprite Pro Utility <span className="text-indigo-500 text-2xl not-italic">v3.0</span></h1>
+          <h1 className="text-5xl font-black text-white tracking-tight mb-3 italic">Sprite Pro Utility <span className="text-indigo-500 text-2xl not-italic">v3.1</span></h1>
           <p className="text-zinc-500 text-lg max-w-2xl mx-auto leading-relaxed italic underline decoration-indigo-500/30">
             Ferramenta de teste feita por <span className="text-white font-bold">Meduag Maker Lab</span>.
           </p>
@@ -372,7 +385,10 @@ export default function App() {
 
         {/* FEEDBACK DE STATUS E MENSAGEM DE SUCESSO - MEDUAG MAKER LAB */}
         {status !== 'idle' && (
-          <div className="max-w-3xl mx-auto mb-16 bg-zinc-900/90 border border-zinc-800 p-8 rounded-[2.5rem] shadow-2xl backdrop-blur-xl relative z-50">
+          <div 
+            ref={statusPanelRef}
+            className="max-w-3xl mx-auto mb-16 bg-zinc-900/90 border border-zinc-800 p-8 rounded-[2.5rem] shadow-2xl backdrop-blur-xl relative z-50 scroll-mt-20"
+          >
             {status === 'processing' && (
               <div className="space-y-6 text-white font-bold">
                 <div className="flex justify-between items-center text-sm">
