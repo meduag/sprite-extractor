@@ -1,3 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Se você ainda quiser usar o seu arquivo tailwind.config.js antigo, 
+   adicione a linha abaixo. Caso contrário, o v4 funcionará no modo automático. */
+@config "../tailwind.config.js";
