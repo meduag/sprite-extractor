@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, FileJson, Image as ImageIcon, Loader2, CheckCircle2, XCircle, Trash2, Zap, FileArchive, ArrowRight, Eye, RefreshCcw, Info, Youtube, Github, ShieldCheck, HelpCircle } from 'lucide-react';
+import { Download, FileJson, Image as ImageIcon, Loader2, CheckCircle2, XCircle, Trash2, Zap, FileArchive, ArrowRight, Eye, RefreshCcw, Info, Youtube, Github, ShieldCheck, HelpCircle, ExternalLink } from 'lucide-react';
 
 /**
- * Sprite Pro Utility - Versão 2.8
- * - Motor de parsing de Plist (XML) mais robusto.
- * - Alteração do texto do cabeçalho solicitado pelo utilizador.
- * - Suporte a tags <real> e <array> no processamento de metadados.
+ * Sprite Pro Utility - Versão 3.0
+ * - Corrigida visibilidade da mensagem de sucesso "Meduag Maker Lab".
+ * - Diferenciação de mensagens entre Recorte e Conversão.
+ * - Adicionado feedback para carregamento de bibliotecas.
+ * - Mantém a injeção do HTML de créditos no ZIP.
  */
 
 // --- Utilitários de Parsing de Plist (XML) ---
@@ -15,17 +16,14 @@ const parsePlist = (text) => {
   
   const parseNode = (node) => {
     if (!node) return null;
-
     const tagName = node.tagName?.toLowerCase();
 
     if (tagName === 'dict') {
       const obj = {};
       let currentKey = null;
-      // Itera apenas sobre os elementos filhos, ignorando nós de texto/espaços
       for (let i = 0; i < node.childNodes.length; i++) {
         const child = node.childNodes[i];
-        if (child.nodeType !== 1) continue; // Ignora nós que não são elementos (texto, comentários)
-
+        if (child.nodeType !== 1) continue;
         const childTag = child.tagName.toLowerCase();
         if (childTag === 'key') {
           currentKey = child.textContent.trim();
@@ -47,9 +45,7 @@ const parsePlist = (text) => {
       const arr = [];
       for (let i = 0; i < node.childNodes.length; i++) {
         const child = node.childNodes[i];
-        if (child.nodeType === 1) {
-          arr.push(parseNode(child));
-        }
+        if (child.nodeType === 1) arr.push(parseNode(child));
       }
       return arr;
     }
@@ -73,7 +69,8 @@ export default function App() {
   const [convertedPngUrl, setConvertedPngUrl] = useState(null);
   const [pvrVersion, setPvrVersion] = useState(null);
   
-  const [status, setStatus] = useState('idle');
+  const [status, setStatus] = useState('idle'); // idle, processing, success, error
+  const [taskType, setTaskType] = useState(''); // 'extract' ou 'convert'
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [libsLoaded, setLibsLoaded] = useState({ jszip: false, pako: false });
@@ -97,6 +94,7 @@ export default function App() {
     setConvertedPngUrl(null);
     setPvrVersion(null);
     setStatus('idle');
+    setTaskType('');
     setProgress(0);
     setErrorMsg('');
   };
@@ -179,7 +177,10 @@ export default function App() {
   };
 
   const handleCczToPng = async () => {
-    if (!cczFile || !window.pako) return;
+    if (!libsLoaded.pako) { setErrorMsg("Aguarde o carregamento do motor Pako..."); setStatus('error'); return; }
+    if (!cczFile) { setErrorMsg("Selecione um ficheiro .ccz primeiro."); setStatus('error'); return; }
+
+    setTaskType('convert');
     setStatus('processing'); setProgress(20);
     try {
       const buffer = await cczFile.arrayBuffer();
@@ -198,7 +199,10 @@ export default function App() {
   };
 
   const handleExtractSprites = async () => {
-    if (!libsLoaded.jszip || !plistFile || !imageFile) return;
+    if (!libsLoaded.jszip) { setErrorMsg("Aguarde o carregamento do motor JSZip..."); setStatus('error'); return; }
+    if (!plistFile || !imageFile) { setErrorMsg("Carregue o .plist e a imagem primeiro."); setStatus('error'); return; }
+
+    setTaskType('extract');
     setStatus('processing'); setProgress(0);
     try {
       const JSZip = window.JSZip;
@@ -227,17 +231,12 @@ export default function App() {
         const rect = extractNumbers(f.frame || f.textureRect);
         const [x, y, w, h] = rect;
         const rotated = f.rotated || false;
-        
         canvas.width = w; canvas.height = h;
         ctx.clearRect(0, 0, w, h);
-        
         if (rotated) {
           ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(-Math.PI / 2);
           ctx.drawImage(img, x, y, h, w, -h / 2, -w / 2, h, w); ctx.restore();
-        } else { 
-          ctx.drawImage(img, x, y, w, h, 0, 0, w, h); 
-        }
-        
+        } else { ctx.drawImage(img, x, y, w, h, 0, 0, w, h); }
         const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
         zip.file(name.endsWith('.png') ? name : `${name}.png`, blob);
         setProgress(Math.round(((i + 1) / total) * 100));
@@ -278,10 +277,7 @@ export default function App() {
       link.download = `extraido_${plistFile.name.replace('.plist', '')}.zip`;
       link.click();
       setStatus('success');
-    } catch (err) { 
-      setErrorMsg(err.message || "Erro na extração de sprites."); 
-      setStatus('error'); 
-    }
+    } catch (err) { setErrorMsg(err.message || "Erro na extração de sprites."); setStatus('error'); }
   };
 
   const useConvertedInExtractor = () => {
@@ -299,7 +295,7 @@ export default function App() {
         <header className="text-center mb-16 relative">
           <div className="absolute inset-0 bg-indigo-500/10 blur-[100px] rounded-full -z-10" />
           <Zap className="w-12 h-12 text-indigo-400 mx-auto mb-6" />
-          <h1 className="text-5xl font-black text-white tracking-tight mb-3 italic">Sprite Pro Utility <span className="text-indigo-500 text-2xl not-italic">v2.8</span></h1>
+          <h1 className="text-5xl font-black text-white tracking-tight mb-3 italic">Sprite Pro Utility <span className="text-indigo-500 text-2xl not-italic">v3.0</span></h1>
           <p className="text-zinc-500 text-lg max-w-2xl mx-auto leading-relaxed italic underline decoration-indigo-500/30">
             Ferramenta de teste feita por <span className="text-white font-bold">Meduag Maker Lab</span>.
           </p>
@@ -330,7 +326,8 @@ export default function App() {
             <button onClick={handleExtractSprites} disabled={!plistFile || !imageFile || status === 'processing'}
               className="mt-8 w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-20 text-white font-bold rounded-2xl transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-2"
             >
-              <Download className="w-5 h-5" /> Iniciar Recorte (.zip)
+              {status === 'processing' && taskType === 'extract' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+              {status === 'processing' && taskType === 'extract' ? 'Recortando...' : 'Iniciar Recorte (.zip)'}
             </button>
           </section>
 
@@ -366,41 +363,74 @@ export default function App() {
               <button onClick={handleCczToPng} disabled={!cczFile || status === 'processing'}
                 className="mt-8 w-full py-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-20 text-white font-bold rounded-2xl transition-all shadow-xl shadow-purple-600/20 flex items-center justify-center gap-2"
               >
-                <ArrowRight className="w-5 h-5" /> Converter para PNG
+                {status === 'processing' && taskType === 'convert' ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
+                {status === 'processing' && taskType === 'convert' ? 'Convertendo...' : 'Converter para PNG'}
               </button>
             )}
           </section>
         </div>
 
-        {/* FEEDBACK DE STATUS */}
+        {/* FEEDBACK DE STATUS E MENSAGEM DE SUCESSO - MEDUAG MAKER LAB */}
         {status !== 'idle' && (
-          <div className="max-w-3xl mx-auto mb-16 bg-zinc-900/90 border border-zinc-800 p-8 rounded-[2.5rem] shadow-2xl backdrop-blur-xl">
+          <div className="max-w-3xl mx-auto mb-16 bg-zinc-900/90 border border-zinc-800 p-8 rounded-[2.5rem] shadow-2xl backdrop-blur-xl relative z-50">
             {status === 'processing' && (
               <div className="space-y-6 text-white font-bold">
                 <div className="flex justify-between items-center text-sm">
                   <div className="flex items-center gap-3">
                     <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-                    <span className="uppercase tracking-widest">Processando...</span>
+                    <span className="uppercase tracking-widest font-black tracking-[0.2em]">Processando...</span>
                   </div>
                   <span className="font-mono text-2xl text-indigo-500">{progress}%</span>
                 </div>
-                <div className="h-3 bg-zinc-800 rounded-full overflow-hidden p-0.5">
-                  <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+                <div className="h-3 bg-zinc-800 rounded-full overflow-hidden p-0.5 border border-zinc-700/50">
+                  <div className="h-full bg-indigo-500 transition-all duration-300 rounded-full" style={{ width: `${progress}%` }} />
                 </div>
               </div>
             )}
+            
             {status === 'success' && (
-              <div className="text-center py-4 space-y-6 text-white">
-                <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto" />
-                <h3 className="text-2xl font-black italic uppercase">Operação Concluída</h3>
-                <button onClick={reset} className="px-8 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl text-xs uppercase">Limpar</button>
+              <div className="text-center py-6 animate-in zoom-in-95 duration-500">
+                <div className="flex flex-col items-center">
+                  <div className="w-24 h-24 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mb-6 border border-emerald-500/20 shadow-[0_0_40px_-10px_rgba(16,185,129,0.2)]">
+                    <CheckCircle2 className="w-12 h-12" />
+                  </div>
+                  
+                  <h3 className="text-4xl font-black text-white italic tracking-tighter mb-1">
+                    {taskType === 'extract' ? 'SPRITES EXTRAÍDOS!' : 'CONVERSÃO CONCLUÍDA!'}
+                  </h3>
+                  <span className="text-indigo-400 font-black tracking-[0.3em] text-[10px] uppercase mb-8">Meduag Maker Lab</span>
+                  
+                  <div className="bg-zinc-950/50 p-8 rounded-[2rem] border border-zinc-800 max-w-md mb-8 shadow-inner">
+                    <p className="text-zinc-400 text-sm leading-relaxed mb-6">
+                      Obrigado por utilizar esta ferramenta. Seus recursos foram processados com sucesso. 
+                      Para tutoriais, novidades e novos scripts, acompanhe o canal oficial:
+                    </p>
+                    <a 
+                      href="https://youtube.com/meduag" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-3 px-8 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-red-600/30 active:scale-95 group"
+                    >
+                      <Youtube className="w-6 h-6" /> YouTube @meduag <ExternalLink className="w-4 h-4 opacity-50 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                    </a>
+                  </div>
+
+                  <button 
+                    onClick={reset} 
+                    className="flex items-center gap-2 px-10 py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-2xl text-[10px] uppercase tracking-widest transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" /> Limpar e Reiniciar
+                  </button>
+                </div>
               </div>
             )}
+
             {status === 'error' && (
-              <div className="text-center py-4 space-y-4">
-                <XCircle className="w-16 h-16 text-red-500 mx-auto opacity-50" />
-                <p className="text-red-400 text-xs font-mono">{String(errorMsg)}</p>
-                <button onClick={() => setStatus('idle')} className="text-zinc-500 underline text-xs">Tentar Novamente</button>
+              <div className="text-center py-6">
+                <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4 opacity-50" />
+                <h4 className="text-white font-bold mb-2 uppercase text-xs tracking-widest">Ocorreu um problema</h4>
+                <p className="text-red-400 text-xs font-mono bg-red-500/5 p-4 rounded-xl border border-red-500/10 mb-6">{String(errorMsg)}</p>
+                <button onClick={() => setStatus('idle')} className="text-zinc-500 underline text-[10px] font-bold uppercase tracking-widest">Tentar Novamente</button>
               </div>
             )}
           </div>
